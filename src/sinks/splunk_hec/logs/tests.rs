@@ -1,16 +1,22 @@
-use crate::event::Event;
-use crate::sinks::splunk_hec::logs::encoder::HecLogsEncoder;
-use crate::sinks::splunk_hec::logs::sink::process_log;
-use crate::template::Template;
-use chrono::Utc;
-use serde::Deserialize;
-use std::collections::BTreeMap;
-use std::convert::TryFrom;
-use vector_core::config::log_schema;
-use vector_core::event::Value;
-use vector_core::ByteSizeOf;
-
 use super::sink::HecProcessedEvent;
+use crate::{
+    config::{SinkConfig, SinkContext},
+    sinks::{
+        splunk_hec::logs::{config::HecSinkLogsConfig, encoder::HecLogsEncoder, sink::process_log},
+        util::{test::build_test_server, Compression},
+    },
+    template::Template,
+    test_util::next_addr,
+};
+use chrono::Utc;
+use futures_util::{stream, StreamExt};
+use serde::Deserialize;
+use std::{collections::BTreeMap, sync::Arc};
+use vector_core::{
+    config::log_schema,
+    event::{Event, Value},
+    ByteSizeOf,
+};
 
 #[derive(Deserialize, Debug)]
 struct HecEventJson {
@@ -62,6 +68,14 @@ fn get_processed_event() -> HecProcessedEvent {
         indexed_fields.as_slice(),
     )
     .unwrap()
+}
+
+fn get_event_with_token(msg: &str, token: &str) -> Event {
+    let mut event = Event::from(msg);
+    event
+        .metadata_mut()
+        .set_splunk_hec_token(Some(Arc::from(token)));
+    event
 }
 
 #[test]
@@ -135,4 +149,54 @@ fn splunk_encode_log_event_text() {
         now
     );
     assert_eq!((hec_data.time * 1000f64).fract(), 0f64);
+}
+
+#[tokio::test]
+async fn splunk_passthrough_token() {
+    let addr = next_addr();
+    let config = HecSinkLogsConfig {
+        token: "token".into(),
+        endpoint: format!("http://{}", addr),
+        host_key: "host".into(),
+        indexed_fields: Vec::new(),
+        index: None,
+        sourcetype: None,
+        source: None,
+        encoding: HecLogsEncoder::Json.into(),
+        compression: Compression::None,
+        batch: Default::default(),
+        request: Default::default(),
+        tls: None,
+        acknowledgements: Some(Default::default()),
+    };
+    let cx = SinkContext::new_test();
+
+    let (sink, _) = config.build(cx).await.unwrap();
+
+    let (rx, _trigger, server) = build_test_server(addr);
+    tokio::spawn(server);
+
+    let events = vec![
+        get_event_with_token("message-1", "passthrough-token-1"),
+        get_event_with_token("message-2", "passthrough-token-2"),
+        Event::from("default token will be used"),
+    ];
+
+    let _ = sink.run(stream::iter(events)).await.unwrap();
+
+    let mut tokens = rx
+        .take(3)
+        .map(|r| r.0.headers.get("Authorization").unwrap().clone())
+        .collect::<Vec<_>>()
+        .await;
+
+    tokens.sort();
+    assert_eq!(
+        tokens,
+        vec![
+            "Splunk passthrough-token-1",
+            "Splunk passthrough-token-2",
+            "Splunk token"
+        ]
+    )
 }
