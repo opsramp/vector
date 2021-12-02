@@ -624,6 +624,7 @@ sinks-logs = [
   "sinks-socket",
   "sinks-splunk_hec",
   "sinks-vector",
+  "sinks-opsramp",
 ]
 sinks-metrics = [
   "sinks-aws_cloudwatch_metrics",
@@ -677,6 +678,7 @@ sinks-splunk_hec = []
 sinks-statsd = ["sinks-utils-udp", "tokio-util/net"]
 sinks-utils-udp = []
 sinks-vector = ["sinks-utils-udp", "tonic", "protobuf-build"]
+sinks-opsramp = ["uuid", "tonic", "protobuf-build"]
 
 # Datadog integration
 datadog-pipelines = [

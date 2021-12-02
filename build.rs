@@ -1,4 +1,5 @@
 use std::{collections::HashSet, env, fs::File, io::Write, path::Path};
+// extern crate protoc_grpcio;
 
 struct TrackedEnv {
     tracked: HashSet<String>,
@@ -118,6 +119,35 @@ fn main() {
                 &["proto/", "lib/vector-core/proto/"],
             )
             .unwrap();
+
+        tonic_build::configure()
+            .build_client(true)
+            .compile(
+                &[
+                    "src/sinks/opsramp/opentelemetry/proto/common/v1/common.proto",
+                    "src/sinks/opsramp/opentelemetry/proto/resource/v1/resource.proto",
+                    "src/sinks/opsramp/opentelemetry/proto/logs/v1/logs.proto",
+                    "src/sinks/opsramp/opentelemetry/proto/collector/logs/v1/logs_service.proto",
+                ],
+                &["src/sinks/opsramp/"],
+            )
+            .expect("Error generating protobuf");
+
+
+        // let proto_root = "src/sinks/opsramp";
+        // println!("cargo:rerun-if-changed={}", proto_root);
+        // protoc_grpcio::compile_grpc_protos(
+        //     &[
+        //         "src/sinks/opsramp/opentelemetry/proto/common/v1/common.proto",
+        //         "src/sinks/opsramp/opentelemetry/proto/resource/v1/resource.proto",
+        //         "src/sinks/opsramp/opentelemetry/proto/logs/v1/logs.proto",
+        //         "src/sinks/opsramp/opentelemetry/proto/collector/logs/v1/logs_service.proto",
+        //     ],
+        //     &[proto_root],
+        //     "src/sinks/opsramp/opentelemetry_proto/",
+        //     None,
+        // )
+        //     .expect("Failed to compile gRPC definitions!");
     }
 
     // We keep track of which environment variables we slurp in, and then emit stanzas at the end to
