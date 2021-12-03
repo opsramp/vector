@@ -135,9 +135,6 @@ impl OpsRampService {
 
         let opsramp_auth_token_request_url = format!("{}auth/oauth/token", self.endpoint.uri);
 
-        let opsramp_auth_token_request_url =
-            "https://asura.opsramp.net/auth/oauth/token".to_string(); // TODO: Remove this after testing
-
         let opsramp_auth_body = format!(
             "client_id={}&client_secret={}&grant_type=client_credentials",
             self.client_key.clone().read().unwrap().to_string(),
