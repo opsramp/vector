@@ -5,7 +5,6 @@ use vector_core::ByteSizeOf;
 
 use super::pb::opentelemetry::proto::logs::v1 as logsStructures;
 
-// use logsStructures::InstrumentationLibraryLogs as OpsRampRecord;
 use super::pb::opentelemetry::proto::common::v1 as logsCommon;
 use logsStructures::LogRecord as OpsRampRecord;
 use logsStructures::ResourceLogs as OpsRampBatch;

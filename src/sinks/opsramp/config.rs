@@ -5,31 +5,24 @@ use crate::{
     config::{DataType, GenerateConfig, ProxyConfig, SinkConfig, SinkContext},
     sinks::{
         util::{
-            encoding::EncodingConfig, retries::RetryLogic, BatchConfig, BatchSettings, BatchSink,
-            Compression, RealtimeEventBasedDefaultBatchSettings, ServiceBuilderExt,
-            TowerRequestConfig, UriSerde,
+            encoding::EncodingConfig, retries::RetryLogic, BatchConfig, Compression,
+            RealtimeEventBasedDefaultBatchSettings, TowerRequestConfig, UriSerde,
         },
-        Healthcheck, VectorSink,
+        VectorSink,
     },
     template::Template,
-    tls::{tls_connector_builder, MaybeTlsSettings, TlsConfig, TlsOptions, TlsSettings},
+    tls::{TlsOptions, TlsSettings},
 };
 use futures::future::FutureExt;
 use http::Uri;
-use hyper::client::HttpConnector;
-use hyper_openssl::HttpsConnector;
-use hyper_proxy::ProxyConnector;
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
+use std::path::Path;
 use std::{collections::HashMap, env};
-use tonic::body::BoxBody;
-use tonic::{metadata::MetadataValue, transport::Channel};
-use tonic::transport::Endpoint;
-use std::time::Duration;
+use tonic::transport::Channel;
+use tonic::transport::{Certificate, ClientTlsConfig};
 
 use super::pb::opentelemetry::proto::collector::logs::v1 as logsService;
-
-use logsService::logs_service_client::LogsServiceClient;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -213,29 +206,50 @@ impl SinkConfig for OpsRampSinkConfig {
             ..self.clone()
         };
 
-        let tls = TlsSettings::from_options(&self.tls).unwrap_or_default();
+        let default = TlsOptions::default();
+        let options = self.tls.as_ref().unwrap_or(&default);
+        let options = options.clone().ca_file.unwrap_or_default();
 
-        // let client = self.build_grpc_client(&tls, &config.proxy.clone().unwrap_or_default())?;
+        let ca_certs_locations = vec![
+            options.to_str().unwrap_or_default(),
+            "/etc/ssl/certs/ca-certificates.crt", // Debian/Ubuntu/Gentoo etc.
+            "/etc/pki/tls/certs/ca-bundle.crt",   // Fedora/RHEL 6
+            "/etc/ssl/ca-bundle.pem",             // OpenSUSE
+            "/etc/pki/tls/cacert.pem",            // OpenELEC
+            "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", // CentOS/RHEL 7
+            "/etc/ssl/cert.pem",                  // Alpine Linux
+        ];
+
+        let mut certificate_location = "";
+
+        for ca_cert_location in ca_certs_locations.iter() {
+            if Path::new(ca_cert_location).exists() {
+                certificate_location = ca_cert_location;
+                break;
+            }
+        }
+
+        info!("certificate from {} is selected", certificate_location);
+        let authorities = tokio::fs::read(certificate_location).await?;
+
+        let ca = Certificate::from_pem(authorities);
+
+        let tls = ClientTlsConfig::new()
+            .domain_name(config.endpoint.clone().uri.host().unwrap_or_default())
+            .ca_certificate(ca);
 
         let endpoint = config.endpoint.clone();
 
         println!("endpoint is {:?}", endpoint);
 
-        let grpc_channel = Channel::builder(endpoint.uri).connect().await?;
-
-        println!("here after grpc channel");
-
-        // let grpc_channel = Channel::from_static("0.0.0.0:50051").connect().await.unwrap();
-
-        // let grpc_client = LogsServiceClient::connect(endpoint_string).await?;
+        let grpc_channel = Channel::builder(endpoint.uri)
+            .tls_config(tls)?
+            .connect()
+            .await?;
 
         let sink = OpsRampSink::new(config.clone(), grpc_channel, cx.clone())?;
 
-        println!("here after creating the sink");
-
         let healthcheck = healthcheck(config.clone(), self.build_http_client(cx.clone())?).boxed();
-
-        println!("here in opsramp/config.rs after creating healthcheck and sink.");
 
         Ok((VectorSink::Stream(Box::new(sink)), healthcheck))
     }
