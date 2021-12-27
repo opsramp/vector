@@ -33,6 +33,7 @@ use logsStructures::ResourceLogs as OpsRampBatch;
 
 use logsService::logs_service_client::LogsServiceClient;
 use logsService::ExportLogsServiceRequest;
+use logsService::ExportLogsServiceResponse;
 
 #[derive(Debug, Snafu)]
 pub enum OpsRampError {
@@ -96,6 +97,8 @@ pub struct OpsRampAuthTokenResponse {
 #[derive(Debug, Clone)]
 pub struct OpsRampService {
     endpoint: UriSerde,
+    auth_token_endpoint: UriSerde,
+    skip_auth_verify: bool,
     grpc_channel: tonic::transport::Channel,
     access_token: Arc<RwLock<String>>,
     client_key: Arc<RwLock<String>>,
@@ -113,6 +116,8 @@ impl OpsRampService {
     ) -> crate::Result<Self> {
         Ok(Self {
             endpoint: config.endpoint.clone(),
+            auth_token_endpoint: config.auth_token_endpoint.clone(),
+            skip_auth_verify: config.skip_auth_verify.clone(),
             grpc_channel,
             access_token: Arc::new(RwLock::new("".to_string())),
             client_key: Arc::new(RwLock::new(config.client_key.clone())),
@@ -124,7 +129,16 @@ impl OpsRampService {
         })
     }
 
+    fn reset_opsramp_auth_token(&mut self) {
+        info!("opsramp auth_token is reset");
+        *self.access_token.write().unwrap() = "".to_string();
+    }
+
     async fn get_opsramp_auth_token(&mut self) -> String {
+        if self.skip_auth_verify {
+            return "dummy".to_string();
+        }
+
         if !self.access_token.clone().read().unwrap().is_empty() {
             info!(
                 "making use of saved opsramp auth token {}",
@@ -133,7 +147,8 @@ impl OpsRampService {
             return self.access_token.clone().read().unwrap().to_string();
         }
 
-        let opsramp_auth_token_request_url = format!("{}auth/oauth/token", self.endpoint.uri);
+        let opsramp_auth_token_request_url =
+            format!("{}auth/oauth/token", self.auth_token_endpoint.uri);
 
         let opsramp_auth_body = format!(
             "client_id={}&client_secret={}&grant_type=client_credentials",
@@ -187,7 +202,32 @@ impl OpsRampService {
 
         *self.access_token.write().unwrap() = auth_token_response.access_token.clone();
 
+        info!(
+            "opsramp auth_token {} issued",
+            auth_token_response.access_token.clone()
+        );
         auth_token_response.access_token
+    }
+
+    async fn resend_grpc_request(
+        &mut self,
+        req: Request<ExportLogsServiceRequest>,
+    ) -> Result<tonic::Response<ExportLogsServiceResponse>, tonic::Status> {
+        let grpc_channel = self.grpc_channel.clone();
+        let mut auth_token = self.clone();
+
+        let access_token = auth_token.get_opsramp_auth_token().await;
+        let token = MetadataValue::from_str(format!("Bearer {}", access_token).as_str()).unwrap();
+
+        let mut client = LogsServiceClient::with_interceptor(
+            grpc_channel.clone(),
+            move |mut req: Request<()>| {
+                req.metadata_mut().insert("authorization", token.clone());
+                Ok(req)
+            },
+        );
+
+        client.export(req).await
     }
 }
 
@@ -216,34 +256,62 @@ impl Service<OpsRampRequest> for OpsRampService {
             let token =
                 MetadataValue::from_str(format!("Bearer {}", access_token).as_str()).unwrap();
 
-            let mut client =
-                LogsServiceClient::with_interceptor(grpc_channel, move |mut req: Request<()>| {
+            let mut client = LogsServiceClient::with_interceptor(
+                grpc_channel.clone(),
+                move |mut req: Request<()>| {
                     req.metadata_mut().insert("authorization", token.clone());
                     Ok(req)
-                });
+                },
+            );
 
             let req = tonic::Request::new(ExportLogsServiceRequest {
-                resource_logs: vec![OpsRampBatch::from(request.opsramp_records)],
+                resource_logs: vec![OpsRampBatch::from(request.opsramp_records.clone())],
             });
 
             match client.export(req).await {
                 Ok(response) => {
-                    // let status = respons;
-
-                    // match status {
-                    //     StatusCode::NO_CONTENT => Ok(OpsRampResponse {
-                    //         batch_size,
-                    //         events_byte_size,
-                    //     }),
-                    //     code => Err(OpsRampError::ServerError { code }),
-                    // }
-                    info!("opsramp grpc sent {:?}", response);
+                    info!("opsramp grpc response {:?}", response);
                     Ok(OpsRampResponse {
                         batch_size,
                         events_byte_size,
                     })
                 }
-                Err(error) => Err(OpsRampError::HttpError { error }),
+                Err(error) => {
+                    error!("opsramp grpc error {:?}", error);
+                    if error.code() == tonic::Code::Unauthenticated {
+                        auth_token.reset_opsramp_auth_token();
+
+                        let req = tonic::Request::new(ExportLogsServiceRequest {
+                            resource_logs: vec![OpsRampBatch::from(request.opsramp_records)],
+                        });
+                        match auth_token.resend_grpc_request(req).await {
+                            Ok(response) => {
+                                info!("opsramp grpc retry response {:?}", response);
+                            }
+                            Err(error) => {
+                                error!("opsramp grpc retry error {:?}", error);
+                            }
+                        }
+
+                        // let access_token = auth_token.get_opsramp_auth_token().await;
+                        // let token =
+                        //     MetadataValue::from_str(format!("Bearer {}", access_token).as_str())
+                        //         .unwrap();
+
+                        // let mut client = LogsServiceClient::with_interceptor(
+                        //     grpc_channel,
+                        //     move |mut req: Request<()>| {
+                        //         req.metadata_mut().insert("authorization", token.clone());
+                        //         Ok(req)
+                        //     },
+                        // );
+                        // let req = tonic::Request::new(ExportLogsServiceRequest {
+                        //     resource_logs: vec![OpsRampBatch::from(request.opsramp_records)],
+                        // });
+                        // client.export(req).await;
+                    }
+                    Err(OpsRampError::HttpError { error })
+                }
             }
         })
     }

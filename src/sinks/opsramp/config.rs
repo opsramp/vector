@@ -21,6 +21,7 @@ use std::path::Path;
 use std::{collections::HashMap, env};
 use tonic::transport::Channel;
 use tonic::transport::{Certificate, ClientTlsConfig};
+use tower::ServiceBuilder;
 
 use super::pb::opentelemetry::proto::collector::logs::v1 as logsService;
 
@@ -30,7 +31,10 @@ pub struct OpsRampSinkConfig {
     #[serde(default)]
     pub endpoint: UriSerde,
 
-    // pub tenant_id: Option<Template>,
+    #[serde(default)]
+    pub auth_token_endpoint: UriSerde,
+    #[serde(default = "crate::serde::default_false")]
+    pub skip_auth_verify: bool,
     #[serde(default)]
     pub tenant_id: String,
     #[serde(default)]
@@ -195,8 +199,14 @@ impl SinkConfig for OpsRampSinkConfig {
             };
         }
 
+        let mut auth_token_endpoint = self.auth_token_endpoint.clone();
+        if self.auth_token_endpoint.uri.host().unwrap_or_default() == "" {
+            auth_token_endpoint = endpoint.clone();
+        }
+
         let config = OpsRampSinkConfig {
             endpoint: endpoint.clone(),
+            auth_token_endpoint: auth_token_endpoint,
             tenant_id: tenant_id.clone(),
             client_key: client_key,
             client_secret: client_secret,
@@ -242,10 +252,13 @@ impl SinkConfig for OpsRampSinkConfig {
 
         println!("endpoint is {:?}", endpoint);
 
-        let grpc_channel = Channel::builder(endpoint.uri)
-            .tls_config(tls)?
-            .connect()
-            .await?;
+        let mut grpc_channel = Channel::builder(endpoint.uri);
+
+        if config.endpoint.clone().uri.scheme_str().unwrap_or_default() == "https" {
+            grpc_channel = grpc_channel.tls_config(tls)?;
+        }
+
+        let grpc_channel = grpc_channel.connect().await?;
 
         let sink = OpsRampSink::new(config.clone(), grpc_channel, cx.clone())?;
 
