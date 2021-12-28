@@ -241,6 +241,16 @@ impl EventEncoder {
         let mut severity_number: i32 = 0;
         let mut severity_text = "Unknown".to_string();
 
+        for (key, value) in labels {
+            let pair = KeyValue {
+                key: key,
+                value: Some(AnyValue {
+                    value: Some(logsCommon::any_value::Value::StringValue(value)),
+                }),
+            };
+            attributes.push(pair);
+        }
+
         for (key, value) in log.as_map() {
             let pair = KeyValue {
                 key: key.to_string(),
