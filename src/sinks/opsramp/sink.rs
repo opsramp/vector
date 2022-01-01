@@ -2,14 +2,13 @@ pub use super::pb::opentelemetry::proto::collector::logs::v1 as logsService;
 pub use super::pb::opentelemetry::proto::common::v1 as logsCommon;
 pub use super::pb::opentelemetry::proto::logs::v1 as logsStructures;
 
-use super::event::{OpsRampBatchEncoder, PartitionKey};
+use super::event::{OpsRampBatchEncoder};
 use crate::config::log_schema;
 use crate::config::SinkContext;
 use crate::internal_events::TemplateRenderingFailed;
 use crate::sinks::opsramp::config::OpsRampSinkConfig;
-use crate::sinks::util::encoding::{EncodingConfig, EncodingConfiguration};
 use crate::sinks::util::SinkBuilderExt;
-use crate::sinks::util::{BatchSettings, Compression, RequestBuilder};
+use crate::sinks::util::{Compression, RequestBuilder};
 use crate::template::Template;
 use futures::stream::BoxStream;
 use futures_util::StreamExt;
@@ -17,28 +16,21 @@ pub use logsService::logs_service_client::LogsServiceClient;
 pub use logsService::ExportLogsServiceRequest;
 pub use logsStructures::ResourceLogs;
 use std::collections::HashMap;
-use std::mem;
 use std::num::NonZeroUsize;
 
-use vector_core::buffers::Acker;
-use vector_core::event::{self, Event, EventFinalizers, Finalizable, Value};
-use vector_core::partition::Partitioner;
-use vector_core::sink::StreamSink;
-use vector_core::stream::BatcherSettings;
-// use super::pb::opentelemetry::proto::collector::logs::v1 as logsService;
-// use super::pb::opentelemetry::proto::logs::v1 as logsStructures;
-
-// use logsStructures::InstrumentationLibraryLogs as OpsRampRecord;
 use super::service::OpsRampRequest;
 use super::service::OpsRampService;
 use logsCommon::AnyValue;
 use logsCommon::KeyValue;
 use logsStructures::LogRecord as OpsRampRecord;
-use logsStructures::SeverityNumber;
 use prost::Message;
 use snafu::Snafu;
+use vector_core::buffers::Acker;
+use vector_core::event::{self, Event, EventFinalizers, Finalizable};
+use vector_core::partition::Partitioner;
+use vector_core::sink::StreamSink;
+use vector_core::stream::BatcherSettings;
 use vector_core::ByteSizeOf;
-// use logsStructures::ResourceLogs;
 
 #[async_trait::async_trait]
 impl StreamSink for OpsRampSink {

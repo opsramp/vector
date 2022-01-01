@@ -21,9 +21,6 @@ use std::path::Path;
 use std::{collections::HashMap, env};
 use tonic::transport::Channel;
 use tonic::transport::{Certificate, ClientTlsConfig};
-use tower::ServiceBuilder;
-
-use super::pb::opentelemetry::proto::collector::logs::v1 as logsService;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]

@@ -1,23 +1,17 @@
 use super::config::OpsRampSinkConfig;
 use crate::config::ProxyConfig;
-use crate::http::{Auth, HttpClient};
 use crate::sinks::util::UriSerde;
-use crate::tls::{TlsConfig, TlsOptions, TlsSettings};
-// use assert_cmd::prelude::OutputOkExt;
+use crate::tls::TlsOptions;
 use futures::future::BoxFuture;
 use http::StatusCode;
-use prost::Message;
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use tonic::Status;
-use tonic::{metadata::MetadataValue, transport::Channel, Request};
+use tonic::{metadata::MetadataValue, Request};
 use tower::Service;
-use tracing_futures::Instrument;
 use vector_core::buffers::Ackable;
 use vector_core::event::{EventFinalizers, EventStatus, Finalizable};
 use vector_core::internal_event::EventsSent;
@@ -29,7 +23,6 @@ pub use super::pb::opentelemetry::proto::logs::v1 as logsStructures;
 use logsStructures::LogRecord as OpsRampRecord;
 
 use logsStructures::ResourceLogs as OpsRampBatch;
-// use super::event::OpsRampBatch;
 
 use logsService::logs_service_client::LogsServiceClient;
 use logsService::ExportLogsServiceRequest;
