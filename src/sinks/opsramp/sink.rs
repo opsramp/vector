@@ -2,10 +2,9 @@ pub use super::pb::opentelemetry::proto::collector::logs::v1 as logsService;
 pub use super::pb::opentelemetry::proto::common::v1 as logsCommon;
 pub use super::pb::opentelemetry::proto::logs::v1 as logsStructures;
 
-use super::event::{OpsRampBatchEncoder};
+use super::event::OpsRampBatchEncoder;
 use crate::config::log_schema;
 use crate::config::SinkContext;
-use crate::internal_events::TemplateRenderingFailed;
 use crate::sinks::opsramp::config::OpsRampSinkConfig;
 use crate::sinks::util::SinkBuilderExt;
 use crate::sinks::util::{Compression, RequestBuilder};
@@ -26,7 +25,7 @@ use logsStructures::LogRecord as OpsRampRecord;
 use prost::Message;
 use snafu::Snafu;
 use vector_core::buffers::Acker;
-use vector_core::event::{self, Event, EventFinalizers, Finalizable};
+use vector_core::event::{self, Event, EventFinalizers};
 use vector_core::partition::Partitioner;
 use vector_core::sink::StreamSink;
 use vector_core::stream::BatcherSettings;
@@ -71,33 +70,33 @@ impl From<std::io::Error> for RequestBuildError {
     }
 }
 
-#[derive(Clone)]
-pub struct KeyPartitioner(Option<Template>);
+// #[derive(Clone)]
+// pub struct KeyPartitioner(Option<Template>);
 
-impl KeyPartitioner {
-    pub const fn new(template: Option<Template>) -> Self {
-        Self(template)
-    }
-}
+// impl KeyPartitioner {
+//     pub const fn new(template: Option<Template>) -> Self {
+//         Self(template)
+//     }
+// }
 
-impl Partitioner for KeyPartitioner {
-    type Item = Event;
-    type Key = Option<String>;
+// impl Partitioner for KeyPartitioner {
+//     type Item = Event;
+//     type Key = Option<String>;
 
-    fn partition(&self, item: &Self::Item) -> Self::Key {
-        self.0.as_ref().and_then(|t| {
-            t.render_string(item)
-                .map_err(|error| {
-                    emit!(&TemplateRenderingFailed {
-                        error,
-                        field: Some("tenant_id"),
-                        drop_event: false,
-                    })
-                })
-                .ok()
-        })
-    }
-}
+//     fn partition(&self, item: &Self::Item) -> Self::Key {
+//         self.0.as_ref().and_then(|t| {
+//             t.render_string(item)
+//                 .map_err(|error| {
+//                     emit!(&TemplateRenderingFailed {
+//                         error,
+//                         field: Some("tenant_id"),
+//                         drop_event: false,
+//                     })
+//                 })
+//                 .ok()
+//         })
+//     }
+// }
 
 #[derive(Clone)]
 pub struct OpsRampRequestBuilder {
@@ -136,7 +135,7 @@ impl RequestBuilder<(String, Vec<OpsRampRecord>)> for OpsRampRequestBuilder {
         let events_byte_size = events.size_of();
         let finalizers = events
             .iter_mut()
-            .fold(EventFinalizers::default(), |mut acc, x| acc);
+            .fold(EventFinalizers::default(), |acc, _| acc);
 
         (
             (
@@ -204,7 +203,6 @@ impl EventEncoder {
     }
 
     pub(super) fn encode_event(&self, mut event: Event, tenant_id: String) -> OpsRampRecord {
-        let finalizers = event.take_finalizers();
         let mut labels = self.build_labels(&event);
         self.remove_label_fields(&mut event);
 
