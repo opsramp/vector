@@ -1,6 +1,8 @@
+use crate::sinks::util::SinkBatchSettings;
 use crate::sinks::util::encoding::Encoder;
 use serde::{ser::SerializeSeq, Serialize};
 use std::io;
+use std::num::NonZeroU64;
 use vector_core::ByteSizeOf;
 
 use super::pb::opentelemetry::proto::logs::v1 as logsStructures;
@@ -69,4 +71,13 @@ impl Serialize for OpsRampEvent {
         seq.serialize_element(&self.event)?;
         seq.end()
     }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct OpsRampDefaultBatchSettings;
+
+impl SinkBatchSettings for OpsRampDefaultBatchSettings {
+    const MAX_EVENTS: Option<usize> = None;
+    const MAX_BYTES: Option<usize> = Some(950000);
+    const TIMEOUT_SECS: NonZeroU64 = unsafe { NonZeroU64::new_unchecked(1) };
 }

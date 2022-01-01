@@ -1,3 +1,4 @@
+use super::event::OpsRampDefaultBatchSettings;
 use super::healthcheck::healthcheck;
 use super::sink::OpsRampSink;
 use crate::http::HttpClient;
@@ -6,7 +7,7 @@ use crate::{
     sinks::{
         util::{
             encoding::EncodingConfig, retries::RetryLogic, BatchConfig, Compression,
-            RealtimeEventBasedDefaultBatchSettings, TowerRequestConfig, UriSerde,
+            TowerRequestConfig, UriSerde,
         },
         VectorSink,
     },
@@ -55,7 +56,7 @@ pub struct OpsRampSinkConfig {
     pub compression: Compression,
     pub encoding: EncodingConfig<Encoding>,
     #[serde(default)]
-    pub batch: BatchConfig<RealtimeEventBasedDefaultBatchSettings>,
+    pub batch: BatchConfig<OpsRampDefaultBatchSettings>,
     #[serde(default)]
     pub request: TowerRequestConfig,
     #[serde(default)]
