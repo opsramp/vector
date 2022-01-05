@@ -2,7 +2,7 @@ pub use super::pb::opentelemetry::proto::collector::logs::v1 as logsService;
 pub use super::pb::opentelemetry::proto::common::v1 as logsCommon;
 pub use super::pb::opentelemetry::proto::logs::v1 as logsStructures;
 
-use super::event::OpsRampBatchEncoder;
+use super::event::{OpsRampBatchEncoder, OpsRampLogRecord, PartitionKey};
 use crate::config::log_schema;
 use crate::config::SinkContext;
 use crate::sinks::opsramp::config::OpsRampSinkConfig;
@@ -16,6 +16,14 @@ pub use logsService::ExportLogsServiceRequest;
 pub use logsStructures::ResourceLogs;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
+use vector_core::{
+    buffers::Acker,
+    event::{self, Event, EventFinalizers, Finalizable},
+    partition::Partitioner,
+    sink::StreamSink,
+    stream::BatcherSettings,
+    ByteSizeOf,
+};
 
 use super::service::OpsRampRequest;
 use super::service::OpsRampService;
@@ -24,12 +32,6 @@ use logsCommon::KeyValue;
 use logsStructures::LogRecord as OpsRampRecord;
 use prost::Message;
 use snafu::Snafu;
-use vector_core::buffers::Acker;
-use vector_core::event::{self, Event, EventFinalizers};
-use vector_core::partition::Partitioner;
-use vector_core::sink::StreamSink;
-use vector_core::stream::BatcherSettings;
-use vector_core::ByteSizeOf;
 
 #[async_trait::async_trait]
 impl StreamSink for OpsRampSink {
@@ -42,11 +44,11 @@ impl StreamSink for OpsRampSink {
 struct RecordPartitionner;
 
 impl Partitioner for RecordPartitionner {
-    type Item = OpsRampRecord;
-    type Key = String;
+    type Item = OpsRampLogRecord;
+    type Key = PartitionKey;
 
     fn partition(&self, item: &Self::Item) -> Self::Key {
-        item.name.clone()
+        item.partition.clone()
     }
 }
 
@@ -113,9 +115,9 @@ impl Default for OpsRampRequestBuilder {
     }
 }
 
-impl RequestBuilder<(String, Vec<OpsRampRecord>)> for OpsRampRequestBuilder {
-    type Metadata = (String, usize, EventFinalizers, usize, Vec<OpsRampRecord>);
-    type Events = Vec<OpsRampRecord>;
+impl RequestBuilder<(PartitionKey, Vec<OpsRampLogRecord>)> for OpsRampRequestBuilder {
+    type Metadata = (String, usize, EventFinalizers, usize, Vec<OpsRampLogRecord>);
+    type Events = Vec<OpsRampLogRecord>;
     type Encoder = OpsRampBatchEncoder;
     type Payload = Vec<u8>;
     type Request = OpsRampRequest;
@@ -129,17 +131,23 @@ impl RequestBuilder<(String, Vec<OpsRampRecord>)> for OpsRampRequestBuilder {
         &self.encoder
     }
 
-    fn split_input(&self, input: (String, Vec<OpsRampRecord>)) -> (Self::Metadata, Self::Events) {
+    fn split_input(
+        &self,
+        input: (PartitionKey, Vec<OpsRampLogRecord>),
+    ) -> (Self::Metadata, Self::Events) {
         let (key, mut events) = input;
         let batch_size = events.len();
         let events_byte_size = events.size_of();
         let finalizers = events
             .iter_mut()
-            .fold(EventFinalizers::default(), |acc, _| acc);
+            .fold(EventFinalizers::default(), |mut acc, x| {
+                acc.merge(x.take_finalizers());
+                acc
+            });
 
         (
             (
-                key,
+                key.tenant_id,
                 batch_size,
                 finalizers,
                 events_byte_size,
@@ -151,9 +159,6 @@ impl RequestBuilder<(String, Vec<OpsRampRecord>)> for OpsRampRequestBuilder {
 
     fn build_request(&self, metadata: Self::Metadata, payload: Self::Payload) -> Self::Request {
         let (tenant_id, batch_size, finalizers, events_byte_size, opsramp_records) = metadata;
-        // emit!(&LokiEventsProcessed {
-        //     byte_size: payload.len(),
-        // });
 
         OpsRampRequest {
             batch_size,
@@ -202,9 +207,11 @@ impl EventEncoder {
         }
     }
 
-    pub(super) fn encode_event(&self, mut event: Event, tenant_id: String) -> OpsRampRecord {
+    pub(super) fn encode_event(&self, mut event: Event, tenant_id: String) -> OpsRampLogRecord {
         let mut labels = self.build_labels(&event);
         self.remove_label_fields(&mut event);
+
+        let finalizers = event.take_finalizers();
 
         let schema = log_schema();
         let timestamp_key = schema.timestamp_key();
@@ -231,15 +238,15 @@ impl EventEncoder {
         let mut severity_number: i32 = 0;
         let mut severity_text = "Unknown".to_string();
 
-        for (key, value) in labels {
-            let pair = KeyValue {
-                key: key,
-                value: Some(AnyValue {
-                    value: Some(logsCommon::any_value::Value::StringValue(value)),
-                }),
-            };
-            attributes.push(pair);
-        }
+        // for (key, value) in labels {
+        //     let pair = KeyValue {
+        //         key: key,
+        //         value: Some(AnyValue {
+        //             value: Some(logsCommon::any_value::Value::StringValue(value)),
+        //         }),
+        //     };
+        //     attributes.push(pair);
+        // }
 
         for (key, value) in log.as_map() {
             let pair = KeyValue {
@@ -280,17 +287,26 @@ impl EventEncoder {
             }
         }
 
-        OpsRampRecord {
+        let partition = PartitionKey::new(tenant_id, &mut labels);
+
+        let event = OpsRampRecord {
             time_unix_nano: timestamp as u64,
             severity_number: severity_number,
             severity_text: severity_text,
-            name: tenant_id,
+            name: "".to_string(),
             body: body,
             attributes: attributes,
             dropped_attributes_count: 0,
             flags: Default::default(),
             trace_id: Default::default(),
             span_id: Default::default(),
+        };
+
+        OpsRampLogRecord {
+            labels,
+            event: event,
+            partition,
+            finalizers,
         }
     }
 }
@@ -300,7 +316,6 @@ pub struct OpsRampSink {
     acker: Acker,
     request_builder: OpsRampRequestBuilder,
     batch_settings: BatcherSettings,
-    grpc_channel: tonic::transport::Channel,
     pub(super) encoder: EventEncoder,
     service: OpsRampService,
     tenant_id: String,
@@ -316,7 +331,6 @@ impl OpsRampSink {
             acker: cx.acker(),
             request_builder: OpsRampRequestBuilder::default(),
             batch_settings: config.batch.into_batcher_settings()?,
-            grpc_channel: grpc_channel.clone(),
             encoder: EventEncoder {
                 labels: config.clone().labels,
                 remove_label_fields: config.clone().remove_label_fields,

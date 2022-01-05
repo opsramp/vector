@@ -16,11 +16,11 @@ use vector_core::buffers::Ackable;
 use vector_core::event::{EventFinalizers, EventStatus, Finalizable};
 use vector_core::internal_event::EventsSent;
 use vector_core::stream::DriverResponse;
+use super::event::OpsRampLogRecord;
 
 pub use super::pb::opentelemetry::proto::collector::logs::v1 as logsService;
 pub use super::pb::opentelemetry::proto::common::v1 as logsCommon;
 pub use super::pb::opentelemetry::proto::logs::v1 as logsStructures;
-use logsStructures::LogRecord as OpsRampRecord;
 
 use logsStructures::ResourceLogs as OpsRampBatch;
 
@@ -61,7 +61,7 @@ pub struct OpsRampRequest {
     pub payload: Vec<u8>,
     pub tenant_id: String,
     pub events_byte_size: usize,
-    pub opsramp_records: Vec<OpsRampRecord>,
+    pub opsramp_records: Vec<OpsRampLogRecord>,
 }
 
 impl Ackable for OpsRampRequest {
@@ -89,7 +89,6 @@ pub struct OpsRampAuthTokenResponse {
 
 #[derive(Debug, Clone)]
 pub struct OpsRampService {
-    endpoint: UriSerde,
     auth_token_endpoint: UriSerde,
     skip_auth_verify: bool,
     grpc_channel: tonic::transport::Channel,
@@ -108,7 +107,6 @@ impl OpsRampService {
         config: OpsRampSinkConfig,
     ) -> crate::Result<Self> {
         Ok(Self {
-            endpoint: config.endpoint.clone(),
             auth_token_endpoint: config.auth_token_endpoint.clone(),
             skip_auth_verify: config.skip_auth_verify.clone(),
             grpc_channel,
