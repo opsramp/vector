@@ -15,6 +15,7 @@ pub use logsService::logs_service_client::LogsServiceClient;
 pub use logsService::ExportLogsServiceRequest;
 pub use logsStructures::ResourceLogs;
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::num::NonZeroUsize;
 use vector_core::{
     buffers::Acker,
@@ -234,7 +235,6 @@ impl EventEncoder {
         let log = event.into_log();
 
         let mut attributes: Vec<KeyValue> = Vec::new();
-        let mut body: Option<AnyValue> = Default::default();
         let mut severity_number: i32 = 0;
         let mut severity_text = "Unknown".to_string();
 
@@ -248,6 +248,12 @@ impl EventEncoder {
         //     attributes.push(pair);
         // }
 
+        let body: Option<AnyValue> = Some(AnyValue {
+            value: Some(logsCommon::any_value::Value::StringValue(
+                serde_json::to_string(&log.clone()).expect("json encoding should never fail.")
+            )),
+        });
+
         for (key, value) in log.as_map() {
             let pair = KeyValue {
                 key: key.to_string(),
@@ -259,13 +265,7 @@ impl EventEncoder {
             };
             attributes.push(pair);
 
-            if key == "message" {
-                body = Some(AnyValue {
-                    value: Some(logsCommon::any_value::Value::StringValue(
-                        value.to_string_lossy(),
-                    )),
-                })
-            } else if key == "level" {
+            if key == "level" {
                 severity_text = value.to_string_lossy();
 
                 if value.to_string_lossy() == "Fatal" {
