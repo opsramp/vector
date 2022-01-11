@@ -238,7 +238,7 @@ impl EventEncoder {
         let mut severity_number: i32 = 0;
         let mut severity_text = "Unknown".to_string();
 
-        for (key, value) in labels {
+        for (key, value) in labels.clone() {
             let pair = KeyValue {
                 key: key,
                 value: Some(AnyValue {
