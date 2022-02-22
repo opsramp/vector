@@ -250,7 +250,7 @@ impl EventEncoder {
 
         let body: Option<AnyValue> = Some(AnyValue {
             value: Some(logsCommon::any_value::Value::StringValue(
-                serde_json::to_string(&log.clone()).expect("json encoding should never fail.")
+                serde_json::to_string(&log.clone()).expect("json encoding should never fail."),
             )),
         });
 
@@ -348,7 +348,7 @@ impl OpsRampSink {
 
         let encoder = self.encoder.clone();
 
-        println!("here in opsramp/sink.rs run_inner function");
+        debug!("reached opsramp sink run_inner");
 
         let sink = input
             .map(|event| encoder.encode_event(event, self.tenant_id.clone()))
@@ -364,8 +364,6 @@ impl OpsRampSink {
                 }
             })
             .into_driver(service, self.acker);
-
-        println!("here after the sink is created in opsramp/sink.rs run_inner function");
 
         sink.run().await
     }

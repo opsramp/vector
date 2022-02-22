@@ -202,6 +202,13 @@ impl SinkConfig for OpsRampSinkConfig {
             auth_token_endpoint = endpoint.clone();
         }
 
+        let mut tower_request_settings = self.request.clone();
+        if self.request.retry_attempts.unwrap_or_default() < 0
+            || self.request.retry_attempts.unwrap_or_default() > 10
+        {
+            tower_request_settings.retry_attempts = Some(2);
+        }
+
         let config = OpsRampSinkConfig {
             endpoint: endpoint.clone(),
             auth_token_endpoint: auth_token_endpoint,
@@ -211,6 +218,7 @@ impl SinkConfig for OpsRampSinkConfig {
             proxy: proxy.clone(),
             proxy_username: proxy_username.to_string(),
             proxy_password: proxy_password.to_string(),
+            request: tower_request_settings,
             ..self.clone()
         };
 
@@ -248,7 +256,7 @@ impl SinkConfig for OpsRampSinkConfig {
 
         let endpoint = config.endpoint.clone();
 
-        println!("endpoint is {:?}", endpoint);
+        info!("endpoint is {:?}", endpoint);
 
         let mut grpc_channel = Channel::builder(endpoint.uri);
 
