@@ -138,6 +138,7 @@ impl Source {
 
         // TODO: Implement checkpoint to save the resource version to avoid duplicates.
         let mut resource_version = "0".to_string();
+        info!("resource_version initialized for kubernetes_events");
 
         loop {
             info!(
@@ -201,20 +202,29 @@ impl Source {
             for event in event_list.items {
                 let mut log_event = LogEvent::from(event.message.unwrap_or_default());
 
+                log_event.insert("app", "kubernetes_events");
+
                 if event.action.is_some() {
                     log_event.insert("action", event.action);
                 }
                 if event.count.is_some() {
                     log_event.insert("count", event.count);
                 }
-                // if event.event_time.is_some() {
-                //     let event_time = event.event_time.unwrap();
 
-                //     log_event.insert("event_time", event.event_time.unwrap());
-                // }
-
-                // log_event.insert("first_timestamp", event.first_timestamp);
-                // log_event.insert("last_timestamp", event.last_timestamp);
+                // considering last timestamp if its present or else considering event time
+                if event.last_timestamp.is_some() {
+                    let last_timestamp = event.last_timestamp.unwrap().0;
+                    log_event.insert("last_timestamp", last_timestamp.clone());
+                    log_event.insert("timestamp", last_timestamp);
+                }
+                if event.event_time.is_some() {
+                    let event_time = event.event_time.unwrap().0;
+                    log_event.insert("event_time", event_time);
+                    log_event.try_insert("timestamp", event_time);
+                }
+                if event.first_timestamp.is_some() {
+                    log_event.insert("first_timestamp", event.first_timestamp.unwrap().0);
+                }
 
                 if event.involved_object.api_version.is_some() {
                     log_event.insert("api_version", event.involved_object.api_version);
@@ -244,7 +254,8 @@ impl Source {
                         log_event.insert("source_component", event_source.component);
                     }
                     if event_source.host.is_some() {
-                        log_event.insert("source_host", event_source.host);
+                        log_event.insert("source_host", event_source.host.clone());
+                        log_event.try_insert("host", event_source.host);
                     }
                 }
                 let log_event = Event::from(log_event);
