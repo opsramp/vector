@@ -1,47 +1,32 @@
 //! This module pools the kubernetes events and sends them as log records
 #![deny(missing_docs)]
 
+use futures::SinkExt;
 use futures::{future::FutureExt, sink::Sink};
-use futures::{
-    future::TryFutureExt,
-    stream::{Stream, StreamExt},
-    SinkExt,
-};
-use futures_util::stream::FuturesUnordered;
 use std::fs;
 use std::task::Poll;
-use tokio::time::{self, Duration};
+use tokio::time::Duration;
 use vector_core::event::LogEvent;
 
-use std::{convert::TryInto, path::PathBuf};
+use std::path::PathBuf;
 
 use crate::config::AcknowledgementsConfig;
 use crate::kubernetes::api_watcher::invocation;
 use crate::kubernetes::watcher;
 use crate::{
     config::{
-        log_schema, ComponentKey, DataType, GenerateConfig, GlobalOptions, ProxyConfig,
-        SourceConfig, SourceContext, SourceDescription,
+        ComponentKey, DataType, GenerateConfig, GlobalOptions, ProxyConfig, SourceConfig,
+        SourceContext, SourceDescription,
     },
     event::Event,
     kubernetes as k8s,
     serde::bool_or_struct,
     shutdown::ShutdownSignal,
     sources,
-    trace::{current_span, Instrument},
-    transforms::{FunctionTransform, TaskTransform},
-    Pipeline,
 };
-use bytes::Bytes;
-use chrono::Utc;
-use file_source::{
-    Checkpointer, FileServer, FileServerShutdown, FingerprintStrategy, Fingerprinter, Line,
-    ReadFrom,
-};
-use k8s_openapi::api::core::v1::{Event as K8sEvent, Namespace, Pod};
+use k8s_openapi::api::core::v1::Event as K8sEvent;
 use k8s_openapi::ListOptional;
 use serde::{Deserialize, Serialize};
-use shared::TimeZone;
 
 /// Configuration for the `kubernetes_events` source.
 #[derive(Deserialize, Serialize, Debug, Clone)]
