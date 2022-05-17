@@ -8,6 +8,8 @@ use futures::{
     SinkExt,
 };
 use futures_util::stream::FuturesUnordered;
+use std::fs;
+use std::task::Poll;
 use tokio::time::{self, Duration};
 use vector_core::event::LogEvent;
 
@@ -126,7 +128,7 @@ impl Source {
         Ok(Self { client, data_dir })
     }
 
-    async fn run<O>(self, mut out: O, global_shutdown: ShutdownSignal) -> crate::Result<()>
+    async fn run<O>(self, mut out: O, mut global_shutdown: ShutdownSignal) -> crate::Result<()>
     where
         O: Sink<Event> + Send + 'static + Unpin,
         <O as Sink<Event>>::Error: std::error::Error,
@@ -137,7 +139,22 @@ impl Source {
         } = self;
 
         // TODO: Implement checkpoint to save the resource version to avoid duplicates.
-        let mut resource_version = "0".to_string();
+        let resource_version_file_path = format!(
+            "{}/{}",
+            data_dir.into_os_string().into_string().unwrap_or_default(),
+            "resource_version"
+        );
+
+        info!(
+            "data dir for kubernetes_events {}",
+            resource_version_file_path
+        );
+
+        let mut resource_version = match fs::read_to_string(resource_version_file_path.clone()) {
+            Ok(resource_version) => resource_version,
+            Err(_err) => "0".to_string(),
+        };
+
         info!("resource_version initialized for kubernetes_events");
 
         loop {
@@ -266,6 +283,10 @@ impl Source {
             // updating resource_version
             if event_list.metadata.resource_version.is_some() {
                 resource_version = event_list.metadata.resource_version.unwrap();
+            }
+            if matches!(futures::poll!(&mut global_shutdown), Poll::Ready(_)) {
+                fs::write(resource_version_file_path.clone(), resource_version);
+                break;
             }
             tokio::time::sleep(Duration::from_secs(30)).await;
         }
