@@ -22,6 +22,8 @@ use std::path::Path;
 use std::{collections::HashMap, env};
 use tonic::transport::Channel;
 use tonic::transport::{Certificate, ClientTlsConfig};
+use super::Schannel;
+use crate::Certificate;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -92,7 +94,7 @@ impl GenerateConfig for OpsRampSinkConfig {
             encoding = "json"
             labels = {}"#,
         )
-        .unwrap()
+            .unwrap()
     }
 }
 
@@ -222,33 +224,38 @@ impl SinkConfig for OpsRampSinkConfig {
             ..self.clone()
         };
 
-        let default = TlsOptions::default();
-        let options = self.tls.as_ref().unwrap_or(&default);
-        let options = options.clone().ca_file.unwrap_or_default();
+        if cfg!(unix){
+            let default = TlsOptions::default();
+            let options = self.tls.as_ref().unwrap_or(&default);
+            let options = options.clone().ca_file.unwrap_or_default();
 
-        let ca_certs_locations = vec![
-            options.to_str().unwrap_or_default(),
-            "/etc/ssl/certs/ca-certificates.crt", // Debian/Ubuntu/Gentoo etc.
-            "/etc/pki/tls/certs/ca-bundle.crt",   // Fedora/RHEL 6
-            "/etc/ssl/ca-bundle.pem",             // OpenSUSE
-            "/etc/pki/tls/cacert.pem",            // OpenELEC
-            "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", // CentOS/RHEL 7
-            "/etc/ssl/cert.pem",                  // Alpine Linux
-        ];
+            let ca_certs_locations = vec![
+                options.to_str().unwrap_or_default(),
+                "/etc/ssl/certs/ca-certificates.crt", // Debian/Ubuntu/Gentoo etc.
+                "/etc/pki/tls/certs/ca-bundle.crt",   // Fedora/RHEL 6
+                "/etc/ssl/ca-bundle.pem",             // OpenSUSE
+                "/etc/pki/tls/cacert.pem",            // OpenELEC
+                "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", // CentOS/RHEL 7
+                "/etc/ssl/cert.pem",                  // Alpine Linux
+            ];
 
-        let mut certificate_location = "";
+            let mut certificate_location = "";
 
-        for ca_cert_location in ca_certs_locations.iter() {
-            if Path::new(ca_cert_location).exists() {
-                certificate_location = ca_cert_location;
-                break;
+            for ca_cert_location in ca_certs_locations.iter() {
+                if Path::new(ca_cert_location).exists() {
+                    certificate_location = ca_cert_location;
+                    break;
+                }
             }
+
+            info!("certificate from {} is selected", certificate_location);
+            let authorities = tokio::fs::read(certificate_location).await?;
+
+            let ca = Certificate::from_pem(authorities);
+        } else if cfg!(windows) {
+            let certs = load_native_certs();
+            let ca = Certificate::from_pem(certs);
         }
-
-        info!("certificate from {} is selected", certificate_location);
-        let authorities = tokio::fs::read(certificate_location).await?;
-
-        let ca = Certificate::from_pem(authorities);
 
         let tls = ClientTlsConfig::new()
             .domain_name(config.endpoint.clone().uri.host().unwrap_or_default())
@@ -271,6 +278,7 @@ impl SinkConfig for OpsRampSinkConfig {
         let healthcheck = healthcheck(config.clone(), self.build_http_client(cx.clone())?).boxed();
 
         Ok((VectorSink::Stream(Box::new(sink)), healthcheck))
+
     }
 
     fn input_type(&self) -> DataType {
@@ -324,6 +332,7 @@ impl RetryLogic for OpsRampGrpcRetryLogic {
     }
 }
 
+
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub))]
 pub enum OpsRampSinkError {
@@ -335,4 +344,32 @@ pub enum OpsRampSinkError {
 
     #[snafu(display("URL has no host."))]
     NoHost,
+}
+
+
+pub fn load_native_certs() -> Result<Vec<Certificate>, Error> {
+    let mut certs = Vec::new();
+
+    let current_user_store = schannel::cert_store::CertStore::open_current_user("ROOT")?;
+
+    for cert in current_user_store.certs() {
+        if usable_for_rustls(cert.valid_uses().unwrap()) && cert.is_time_valid().unwrap() {
+            //certs.push(Certificate(cert.to_der().to_vec()));
+            cert
+        }
+    }
+
+    //Ok(certs)
+}
+
+
+static PKIX_SERVER_AUTH: &str = "1.3.6.1.5.5.7.3.1";
+
+fn usable_for_rustls(uses: schannel::cert_context::ValidUses) -> bool {
+    match uses {
+        schannel::cert_context::ValidUses::All => true,
+        schannel::cert_context::ValidUses::Oids(strs) => strs
+            .iter()
+            .any(|x| x == PKIX_SERVER_AUTH),
+    }
 }
