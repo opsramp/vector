@@ -254,7 +254,7 @@ impl SinkConfig for OpsRampSinkConfig {
             let ca = Certificate::from_pem(authorities);
         } else if cfg!(windows) {
             let certs = load_native_certs();
-            let ca = Certificate::from_pem(certs);
+            let ca = Certificate::from_pem(certs[0]);
         }
 
         let tls = ClientTlsConfig::new()
@@ -354,8 +354,8 @@ pub fn load_native_certs() -> Result<Vec<Certificate>, Error> {
 
     for cert in current_user_store.certs() {
         if usable_for_rustls(cert.valid_uses().unwrap()) && cert.is_time_valid().unwrap() {
-            //certs.push(Certificate(cert.to_der().to_vec()));
-            cert
+            certs.push(Certificate(cert.to_der().to_vec()));
+            certs
         }
     }
 
