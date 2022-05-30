@@ -26,7 +26,7 @@ use tonic::transport::{Certificate, ClientTlsConfig};
 //use crate::Certificate;
 
 /// A newtype representing a single DER-encoded X.509 certificate encoded as a `Vec<u8>`.
-pub struct Certificate(pub Vec<u8>);
+pub struct Certificates(pub Vec<u8>);
 
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -265,7 +265,7 @@ impl SinkConfig for OpsRampSinkConfig {
 
             for cert in current_user_store.certs() {
                 if usable_for_rustls(cert.valid_uses().unwrap()) && cert.is_time_valid().unwrap() {
-                  certs.push(Certificate(cert.to_der().to_vec()));
+                  certs.push(Certificates(cert.to_der().to_vec()));
                   break
                 }
             }
