@@ -27,6 +27,7 @@ use tonic::transport::{Certificate, ClientTlsConfig};
 
 /// A newtype representing a single DER-encoded X.509 certificate encoded as a `Vec<u8>`.
 pub struct Certificates(pub io::Result<Vec<u8>>);
+use std::io;
 
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
