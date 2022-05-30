@@ -234,7 +234,7 @@ impl SinkConfig for OpsRampSinkConfig {
             ..self.clone()
         };
 
-        let mut ca: Certificate = Certificate::new();
+        let mut ca: Certificate = Certificate::from_pem([]);
         let mut certs = Vec::new();
         if cfg!(unix) {
             let default = TlsOptions::default();
