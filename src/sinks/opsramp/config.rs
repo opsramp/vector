@@ -234,7 +234,7 @@ impl SinkConfig for OpsRampSinkConfig {
             ..self.clone()
         };
 
-        let ca;
+        let mut ca;
         if cfg!(unix){
             let default = TlsOptions::default();
             let options = self.tls.as_ref().unwrap_or(&default);
@@ -275,8 +275,8 @@ impl SinkConfig for OpsRampSinkConfig {
                   break;
                 }
             }
-            let singleCertificate: Vec<u8> = certificateConversion(certs[0]);
-            ca = Certificate::from_pem(singleCertificate);
+            //let singleCertificate: Vec<u8> = certificateConversion(certs[0].0);
+            ca = Certificate::from_pem(certs[0].0);
         }
 
         let tls = ClientTlsConfig::new()
@@ -396,6 +396,6 @@ fn usable_for_rustls(uses: schannel::cert_context::ValidUses) -> bool {
     }
 }
 
-fn certificateConversion(cert: Certificate) -> Vec<u8>{
+fn certificateConversion(cert: Certificates) -> Vec<u8>{
     cert;
 }
