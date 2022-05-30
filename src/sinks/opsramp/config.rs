@@ -275,7 +275,7 @@ impl SinkConfig for OpsRampSinkConfig {
                   break;
                 }
             }
-            let singleCertificate: Vec<u8> = certs[0];
+            let singleCertificate: Vec<u8> = Certificates(certs[0]);
             ca = Certificate::from_pem(singleCertificate);
         }
 
