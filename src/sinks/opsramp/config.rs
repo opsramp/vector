@@ -260,14 +260,14 @@ impl SinkConfig for OpsRampSinkConfig {
             ca = Certificate::from_pem(authorities);
         } else if cfg!(windows) {
             //let certs = load_native_certs();
-            let mut certs: Vec<u8> =vec![] ;
+            let mut certs = Vec::new();
 
             let current_user_store = schannel::cert_store::CertStore::open_current_user("ROOT")?;
 
             for cert in current_user_store.certs() {
                 if usable_for_rustls(cert.valid_uses().unwrap()) && cert.is_time_valid().unwrap() {
                   certs.push(Certificates(cert.to_der().to_vec()));
-                  break
+                  break;
                 }
             }
             ca = Certificate::from_pem(certs[0]);
