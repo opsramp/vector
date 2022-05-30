@@ -22,7 +22,7 @@ use std::path::Path;
 use std::{collections::HashMap, env};
 use tonic::transport::Channel;
 use tonic::transport::{Certificate, ClientTlsConfig};
-use super::Schannel;
+//use super::Schannel;
 use crate::Certificate;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -254,7 +254,17 @@ impl SinkConfig for OpsRampSinkConfig {
 
             ca = Certificate::from_pem(authorities);
         } else if cfg!(windows) {
-            let certs = load_native_certs();
+            //let certs = load_native_certs();
+            let mut certs = Vec::new();
+
+            let current_user_store = schannel::cert_store::CertStore::open_current_user("ROOT")?;
+
+            for cert in current_user_store.certs() {
+                if usable_for_rustls(cert.valid_uses().unwrap()) && cert.is_time_valid().unwrap() {
+                  certs.push(Certificate(cert.to_der().to_vec()));
+                  break
+                }
+            }
             ca = Certificate::from_pem(certs[0]);
         }
 
@@ -348,20 +358,20 @@ pub enum OpsRampSinkError {
 }
 
 
-pub fn load_native_certs() -> Result<Vec<Certificate>> {
-    let mut certs = Vec::new();
+// pub fn load_native_certs() -> ResultVec<Certificate> {
+//     let mut certs = Vec::new();
 
-    let current_user_store = schannel::cert_store::CertStore::open_current_user("ROOT")?;
+//     let current_user_store = schannel::cert_store::CertStore::open_current_user("ROOT")?;
 
-    for cert in current_user_store.certs() {
-        if usable_for_rustls(cert.valid_uses().unwrap()) && cert.is_time_valid().unwrap() {
-            certs.push(Certificate(cert.to_der().to_vec()));
-            break
-        }
-    }
+//     for cert in current_user_store.certs() {
+//         if usable_for_rustls(cert.valid_uses().unwrap()) && cert.is_time_valid().unwrap() {
+//             certs.push(Certificate(cert.to_der().to_vec()));
+//             break
+//         }
+//     }
 
-    Ok(certs)
-}
+//     Ok(certs)
+// }
 
 
 static PKIX_SERVER_AUTH: &str = "1.3.6.1.5.5.7.3.1";
