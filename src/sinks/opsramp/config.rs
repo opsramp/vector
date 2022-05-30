@@ -27,6 +27,8 @@ use tonic::transport::{Certificate, ClientTlsConfig};
 
 /// A newtype representing a single DER-encoded X.509 certificate encoded as a `Vec<u8>`.
 pub struct Certificates(pub io::Result<Vec<u8>>);
+pub struct CertificateType(pub AsRef<[u8]>);
+
 use std::io;
 
 
@@ -270,7 +272,8 @@ impl SinkConfig for OpsRampSinkConfig {
                   break;
                 }
             }
-            ca = Certificate::from_pem(certs[0]);
+            let certificateType = CertificateType(certs[0]);
+            ca = Certificate::from_pem(certificateType);
         }
 
         let tls = ClientTlsConfig::new()
