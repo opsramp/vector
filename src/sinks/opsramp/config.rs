@@ -259,7 +259,7 @@ impl SinkConfig for OpsRampSinkConfig {
             ca = Certificate::from_pem(authorities);
         } else if cfg!(windows) {
             //let certs = load_native_certs();
-            let mut certs = Vec::new();
+            let mut certs: Vec<u8> =vec![] ;
 
             let current_user_store = schannel::cert_store::CertStore::open_current_user("ROOT")?;
 
