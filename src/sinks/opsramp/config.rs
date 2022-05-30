@@ -396,6 +396,6 @@ fn usable_for_rustls(uses: schannel::cert_context::ValidUses) -> bool {
     }
 }
 
-fn certificateConversion(cert: Certificates) -> Vec<u8>{
-    cert;
-}
+// fn certificateConversion(cert: Certificates) -> Vec<u8>{
+//     cert;
+// }
