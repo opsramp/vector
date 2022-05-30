@@ -234,8 +234,9 @@ impl SinkConfig for OpsRampSinkConfig {
             ..self.clone()
         };
 
-        let mut ca;
-        if cfg!(unix){
+        let mut ca: Certificate = Certificate::new();
+        let mut certs = Vec::new();
+        if cfg!(unix) {
             let default = TlsOptions::default();
             let options = self.tls.as_ref().unwrap_or(&default);
             let options = options.clone().ca_file.unwrap_or_default();
@@ -245,17 +246,17 @@ impl SinkConfig for OpsRampSinkConfig {
                 "/etc/ssl/certs/ca-certificates.crt", // Debian/Ubuntu/Gentoo etc.
                 "/etc/pki/tls/certs/ca-bundle.crt",   // Fedora/RHEL 6
                 "/etc/ssl/ca-bundle.pem",             // OpenSUSE
-                "/etc/pki/tls/cacert.pem",            // OpenELEC
-                "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", // CentOS/RHEL 7
-                "/etc/ssl/cert.pem",                  // Alpine Linux
+               "/etc/pki/tls/cacert.pem",            // OpenELEC
+               "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", // CentOS/RHEL 7
+               "/etc/ssl/cert.pem",                  // Alpine Linux
             ];
 
             let mut certificate_location = "";
 
             for ca_cert_location in ca_certs_locations.iter() {
-                if Path::new(ca_cert_location).exists() {
+               if Path::new(ca_cert_location).exists() {
                     certificate_location = ca_cert_location;
-                    break;
+                  break;
                 }
             }
 
@@ -265,18 +266,17 @@ impl SinkConfig for OpsRampSinkConfig {
             ca = Certificate::from_pem(authorities);
         } else if cfg!(windows) {
             //let certs = load_native_certs();
-            let mut certs = Vec::new();
 
             let current_user_store = schannel::cert_store::CertStore::open_current_user("ROOT")?;
 
             for cert in current_user_store.certs() {
-                if usable_for_rustls(cert.valid_uses().unwrap()) && cert.is_time_valid().unwrap() {
-                  certs.push(Certificates(cert.to_der().to_vec()));
-                  break;
+               if usable_for_rustls(cert.valid_uses().unwrap()) && cert.is_time_valid().unwrap() {
+                   certs.push(Certificates(cert.to_der().to_vec()));
+                   break;
                 }
             }
-            //let singleCertificate: Vec<u8> = certificateConversion(certs[0].0);
-            ca = Certificate::from_pem(certs[0].0);
+            let cert = certs[0].0.clone();
+            ca = Certificate::from_pem(cert);
         }
 
         let tls = ClientTlsConfig::new()
