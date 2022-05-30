@@ -275,7 +275,7 @@ impl SinkConfig for OpsRampSinkConfig {
                   break;
                 }
             }
-            let singleCertificate: Vec<u8> = Certificates(certs[0]);
+            let singleCertificate: Vec<u8> = certificateConversion(certs[0]);
             ca = Certificate::from_pem(singleCertificate);
         }
 
@@ -394,4 +394,8 @@ fn usable_for_rustls(uses: schannel::cert_context::ValidUses) -> bool {
             .iter()
             .any(|x| x == PKIX_SERVER_AUTH),
     }
+}
+
+fn certificateConversion(cert: Certificate) -> Vec<u8>{
+    cert;
 }
