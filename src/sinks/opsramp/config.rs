@@ -18,6 +18,7 @@ use futures::future::FutureExt;
 use http::Uri;
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
+use std::io::Error;
 use std::path::Path;
 use std::{collections::HashMap, env};
 use tonic::transport::Channel;
@@ -222,38 +223,6 @@ impl SinkConfig for OpsRampSinkConfig {
             ..self.clone()
         };
 
-        let default = TlsOptions::default();
-        let options = self.tls.as_ref().unwrap_or(&default);
-        let options = options.clone().ca_file.unwrap_or_default();
-
-        let ca_certs_locations = vec![
-            options.to_str().unwrap_or_default(),
-            "/etc/ssl/certs/ca-certificates.crt", // Debian/Ubuntu/Gentoo etc.
-            "/etc/pki/tls/certs/ca-bundle.crt",   // Fedora/RHEL 6
-            "/etc/ssl/ca-bundle.pem",             // OpenSUSE
-            "/etc/pki/tls/cacert.pem",            // OpenELEC
-            "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", // CentOS/RHEL 7
-            "/etc/ssl/cert.pem",                  // Alpine Linux
-        ];
-
-        let mut certificate_location = "";
-
-        for ca_cert_location in ca_certs_locations.iter() {
-            if Path::new(ca_cert_location).exists() {
-                certificate_location = ca_cert_location;
-                break;
-            }
-        }
-
-        info!("certificate from {} is selected", certificate_location);
-        let authorities = tokio::fs::read(certificate_location).await?;
-
-        let ca = Certificate::from_pem(authorities);
-
-        let tls = ClientTlsConfig::new()
-            .domain_name(config.endpoint.clone().uri.host().unwrap_or_default())
-            .ca_certificate(ca);
-
         let endpoint = config.endpoint.clone();
 
         info!("endpoint is {:?}", endpoint);
@@ -261,7 +230,48 @@ impl SinkConfig for OpsRampSinkConfig {
         let mut grpc_channel = Channel::builder(endpoint.uri);
 
         if config.endpoint.clone().uri.scheme_str().unwrap_or_default() == "https" {
-            grpc_channel = grpc_channel.tls_config(tls)?;
+            if cfg!(windows) {
+                let authorities = load_native_windows_certs().expect("could not load platform certs");
+                let ca = Certificate::from_pem(authorities);
+                let tls = ClientTlsConfig::new()
+                        .domain_name(config.endpoint.clone().uri.host().unwrap_or_default())
+                        .ca_certificate(ca);
+                grpc_channel = grpc_channel.tls_config(tls)?;
+            } else {
+                let default = TlsOptions::default();
+                let options = self.tls.as_ref().unwrap_or(&default);
+                let options = options.clone().ca_file.unwrap_or_default();
+
+                let ca_certs_locations = vec![
+                    options.to_str().unwrap_or_default(),
+                    "/etc/ssl/certs/ca-certificates.crt", // Debian/Ubuntu/Gentoo etc.
+                    "/etc/pki/tls/certs/ca-bundle.crt",   // Fedora/RHEL 6
+                    "/etc/ssl/ca-bundle.pem",             // OpenSUSE
+                    "/etc/pki/tls/cacert.pem",            // OpenELEC
+                    "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", // CentOS/RHEL 7
+                    "/etc/ssl/cert.pem",                  // Alpine Linux
+                ];
+
+                let mut certificate_location = "";
+
+                for ca_cert_location in ca_certs_locations.iter() {
+                    if Path::new(ca_cert_location).exists() {
+                        certificate_location = ca_cert_location;
+                        break;
+                    }
+                }
+
+                info!("certificate from {} is selected", certificate_location);
+                let authorities = tokio::fs::read(certificate_location).await?;
+
+                let ca = Certificate::from_pem(authorities);
+
+                let tls = ClientTlsConfig::new()
+                    .domain_name(config.endpoint.clone().uri.host().unwrap_or_default())
+                    .ca_certificate(ca);
+
+                grpc_channel = grpc_channel.tls_config(tls)?;
+            }
         }
 
         let grpc_channel = grpc_channel.connect().await?;
@@ -335,4 +345,30 @@ pub enum OpsRampSinkError {
 
     #[snafu(display("URL has no host."))]
     NoHost,
+}
+
+#[cfg(windows)]
+static PKIX_SERVER_AUTH: &str = "1.3.6.1.5.5.7.3.1";
+
+#[cfg(windows)]
+fn usable_for_rustls(uses: schannel::cert_context::ValidUses) -> bool {
+    match uses {
+        schannel::cert_context::ValidUses::All => true,
+        schannel::cert_context::ValidUses::Oids(strs) => strs.iter().any(|x| x == PKIX_SERVER_AUTH),
+    }
+}
+
+#[cfg(windows)]
+pub fn load_native_windows_certs() -> Result<String, Error> {
+    let mut certs: String = "".to_string();
+
+    let current_user_store = schannel::cert_store::CertStore::open_current_user("ROOT")?;
+
+    for cert in current_user_store.certs() {
+        if usable_for_rustls(cert.valid_uses().unwrap()) {
+            certs.push_str(&mut cert.to_pem()?);
+        }
+    }
+
+    Ok(certs)
 }
