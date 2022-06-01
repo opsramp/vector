@@ -201,10 +201,19 @@ impl Source {
                 }
             };
 
+            if event_list.metadata.resource_version.is_some() {
+                if event_list.metadata.resource_version.clone().unwrap() == resource_version {
+                    info!("skipping kubernetes_events since the resource version did not change");
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    continue;
+                }
+            }
+
             for event in event_list.items {
                 let mut log_event = LogEvent::from(event.message.unwrap_or_default());
 
                 log_event.insert("app", "kubernetes_events");
+                log_event.insert("event_type", "kubernetes_events");
 
                 if event.action.is_some() {
                     log_event.insert("action", event.action);
