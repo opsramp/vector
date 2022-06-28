@@ -372,3 +372,8 @@ pub fn load_native_windows_certs() -> Result<String, Error> {
 
     Ok(certs)
 }
+
+#[cfg(target_os = "linux")]
+pub fn load_native_windows_certs() -> Result<String, Error> {
+    Ok("".to_string())
+}
